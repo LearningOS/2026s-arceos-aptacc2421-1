@@ -35,12 +35,17 @@ endef
 
 define setup_disk
   $(call build_origin)
-  @mkdir -p ./mnt
-  @sudo mount $(1) ./mnt
-  @sudo mkdir -p ./mnt/sbin
-  @sudo cp /tmp/origin.bin ./mnt/sbin
-  @sudo umount ./mnt
-  @rm -rf mnt
+  @if command -v mcopy >/dev/null 2>&1; then \
+    mmd -i $(1) ::/sbin 2>/dev/null || true; \
+    mcopy -i $(1) /tmp/origin.bin ::/sbin/origin.bin; \
+  else \
+    mkdir -p ./mnt; \
+    sudo mount $(1) ./mnt; \
+    sudo mkdir -p ./mnt/sbin; \
+    sudo cp /tmp/origin.bin ./mnt/sbin; \
+    sudo umount ./mnt; \
+    rm -rf mnt; \
+  fi
 endef
 
 define build_origin

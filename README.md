@@ -35,6 +35,7 @@ sudo apt-get install -y \
   sudo \
   git \
   dosfstools \
+  mtools \
   build-essential \
   pkg-config \
   libssl-dev \
@@ -70,6 +71,8 @@ source $HOME/.cargo/env
 ```
 
 此时会对`scripts`下所有脚本进行评测，并将结果输出到 `tmp.txt` 中。每一个评测脚本 100 分，通过即可获得满分。
+
+部分测例会 `make disk_img` 往 FAT 镜像里写入 `/sbin/origin.bin`：已安装 **`mtools`**（`mcopy`）时可在无 `sudo` 下完成；否则需本机配置对 loop 设备的 `mount` 权限或免密 `sudo`。
 
 ### 挑战题
 
