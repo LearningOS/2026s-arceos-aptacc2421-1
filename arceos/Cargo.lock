@@ -116,6 +116,7 @@ dependencies = [
  "axtask",
  "bindgen",
  "flatten_objects",
+ "home",
  "lazy_static",
  "spin",
  "static_assertions",
@@ -171,7 +172,6 @@ dependencies = [
  "axerrno 0.1.2",
  "cfg-if",
  "kspin",
- "lab_allocator",
  "log",
  "memory_addr",
 ]
@@ -180,8 +180,6 @@ dependencies = [
 name = "axconfig"
 version = "0.1.0"
 dependencies = [
- "hashbrown",
- "indexmap",
  "serde",
  "toml_edit",
 ]
@@ -1101,20 +1099,6 @@ checksum = "3d841fd3aeaa9a55871068f5c3ce48497a6dbcf14e20ca7784a9f68bfdb4c825"
 dependencies = [
  "cfg-if",
  "kernel_guard",
-]
-
-[[package]]
-name = "lab1"
-version = "0.1.0"
-dependencies = [
- "axstd",
-]
-
-[[package]]
-name = "lab_allocator"
-version = "0.1.0"
-dependencies = [
- "allocator",
 ]
 
 [[package]]
