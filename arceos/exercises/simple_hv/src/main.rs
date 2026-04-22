@@ -102,7 +102,22 @@ fn vmexit_handler(ctx: &mut VmCpuRegisters) -> bool {
             }
         },
         Trap::Exception(Exception::IllegalInstruction) => {
-            panic!("Bad instruction: {:#x} sepc: {:#x}",
+            // In VS-mode, reading M-mode CSRs traps. `skernel2` starts with `csrr a0, mhartid`
+            // (encoding 0xf14025f3: CSR 0xf14, rd=a0, SYSTEM opcode).
+            let inst = stval::read() as u32;
+            if (inst & 0x7f) == 0x73 {
+                let csr = (inst >> 20) & 0xfff;
+                let rd = ((inst >> 7) & 0x1f) as u32;
+                if csr == 0xf14 {
+                    if let Some(gpr) = crate::regs::GprIndex::from_raw(rd) {
+                        ctx.guest_regs.gprs.set_reg(gpr, 0);
+                    }
+                    ctx.guest_regs.sepc = ctx.guest_regs.sepc.wrapping_add(4);
+                    return false;
+                }
+            }
+            panic!(
+                "Bad instruction: {:#x} sepc: {:#x}",
                 stval::read(),
                 ctx.guest_regs.sepc
             );
