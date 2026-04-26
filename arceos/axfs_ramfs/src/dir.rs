@@ -165,6 +165,60 @@ impl VfsNodeOps for DirNode {
         }
     }
 
+    fn rename(&self, src_path: &str, dst_path: &str) -> VfsResult {
+        log::debug!("rename at ramfs: {} -> {}", src_path, dst_path);
+        let src_path = src_path.trim_start_matches('/');
+        let dst_path = dst_path.trim_start_matches('/');
+
+        let (s0, s_rest) = split_path(src_path);
+        if let Some(s_rest) = s_rest {
+            let (d0, d_rest) = split_path(dst_path);
+            let d_rest = d_rest.ok_or(VfsError::InvalidInput)?;
+            if s0 != d0 {
+                return Err(VfsError::CrossesDevices);
+            }
+            let subdir = self
+                .children
+                .read()
+                .get(s0)
+                .ok_or(VfsError::NotFound)?
+                .clone();
+            if !subdir.get_attr()?.is_dir() {
+                return Err(VfsError::NotADirectory);
+            }
+            return subdir.rename(s_rest, d_rest);
+        }
+
+        if s0.is_empty() || s0 == "." || s0 == ".." {
+            return Err(VfsError::InvalidInput);
+        }
+
+        let (d0, d_rest) = split_path(dst_path);
+        let new_name: String = if d_rest.is_none() {
+            d0.into()
+        } else if self.exist(d0) {
+            return Err(VfsError::InvalidInput);
+        } else {
+            last_path_component(dst_path).into()
+        };
+
+        if new_name.is_empty() || new_name == "." || new_name == ".." {
+            return Err(VfsError::InvalidInput);
+        }
+        if new_name == s0 {
+            return Ok(());
+        }
+
+        let mut children = self.children.write();
+        let node = children.remove(s0).ok_or(VfsError::NotFound)?;
+        if children.contains_key(new_name.as_str()) {
+            children.insert(s0.into(), node);
+            return Err(VfsError::AlreadyExists);
+        }
+        children.insert(new_name, node);
+        Ok(())
+    }
+
     axfs_vfs::impl_vfs_dir_default! {}
 }
 
@@ -173,4 +227,13 @@ fn split_path(path: &str) -> (&str, Option<&str>) {
     trimmed_path.find('/').map_or((trimmed_path, None), |n| {
         (&trimmed_path[..n], Some(&trimmed_path[n + 1..]))
     })
+}
+
+fn last_path_component(path: &str) -> &str {
+    let trimmed = path.trim_matches('/');
+    trimmed
+        .rsplit('/')
+        .next()
+        .unwrap_or(trimmed)
+        .trim_matches('/')
 }
