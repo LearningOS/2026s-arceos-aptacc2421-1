@@ -8,7 +8,7 @@ use axhal::paging::MappingFlags;
 use axhal::mem::{PAGE_SIZE_4K, VirtAddr, MemoryAddr};
 use axmm::AddrSpace;
 
-use elf::abi::{PT_INTERP, PT_LOAD};
+use elf::abi::PT_LOAD;
 use elf::endian::AnyEndian;
 use elf::parse::ParseAt;
 use elf::segment::ProgramHeader;
@@ -70,7 +70,7 @@ fn load_elf_phdrs(file: &mut File) -> io::Result<(Vec<ProgramHeader>, usize, usi
 
     let phdrs: Vec<ProgramHeader> = phdrs
         .iter()
-        .filter(|phdr| phdr.p_type == PT_LOAD || phdr.p_type == PT_INTERP)
+        .filter(|phdr| phdr.p_type == PT_LOAD)
         .collect();
     Ok((phdrs, ehdr.e_entry as usize, ehdr.e_phoff as usize, ehdr.e_phnum as usize))
 }

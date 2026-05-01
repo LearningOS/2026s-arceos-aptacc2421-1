@@ -1,13 +1,14 @@
 #![allow(dead_code)]
 
-use core::ffi::{c_void, c_char, c_int};
+use core::ffi::{c_char, c_int, c_void};
+use axerrno::{AxError, LinuxError};
 use axhal::arch::TrapFrame;
+use axhal::paging::MappingFlags;
 use axhal::trap::{register_trap_handler, SYSCALL};
-use axerrno::LinuxError;
 use axtask::current;
 use axtask::TaskExtRef;
-use axhal::paging::MappingFlags;
 use arceos_posix_api as api;
+use memory_addr::{MemoryAddr, VirtAddr, VirtAddrRange, PAGE_SIZE_4K};
 
 const SYS_IOCTL: usize = 29;
 const SYS_OPENAT: usize = 56;
@@ -116,8 +117,8 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
             axtask::exit(tf.arg0() as _)
         },
         SYS_MMAP => sys_mmap(
-            tf.arg0() as _,
-            tf.arg1() as _,
+            tf.arg0(),
+            tf.arg1(),
             tf.arg2() as _,
             tf.arg3() as _,
             tf.arg4() as _,
@@ -131,16 +132,96 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
     ret
 }
 
-#[allow(unused_variables)]
 fn sys_mmap(
-    addr: *mut usize,
+    addr: usize,
     length: usize,
     prot: i32,
     flags: i32,
     fd: i32,
-    _offset: isize,
+    offset: isize,
 ) -> isize {
-    unimplemented!("no sys_mmap!");
+    syscall_body!(sys_mmap, {
+        const SEEK_SET: i32 = 0;
+
+        if length == 0 {
+            return Err(LinuxError::EINVAL);
+        }
+        if fd < 0 {
+            return Err(LinuxError::EBADF);
+        }
+
+        let prot_bits = MmapProt::from_bits_truncate(prot);
+        let flags_bits = MmapFlags::from_bits_truncate(flags);
+
+        if flags_bits.contains(MmapFlags::MAP_ANONYMOUS) {
+            return Err(LinuxError::EINVAL);
+        }
+        if !flags_bits.contains(MmapFlags::MAP_PRIVATE) {
+            return Err(LinuxError::EINVAL);
+        }
+        if offset < 0 {
+            return Err(LinuxError::EINVAL);
+        }
+        let off = offset as usize;
+        if off % PAGE_SIZE_4K != 0 {
+            return Err(LinuxError::EINVAL);
+        }
+
+        let aligned_len = (length + PAGE_SIZE_4K - 1) & !(PAGE_SIZE_4K - 1);
+        let map_flags = MappingFlags::from(prot_bits);
+
+        let curr = current();
+        let mut aspace = curr.task_ext().aspace.lock();
+
+        let start_va = if addr == 0 {
+            let hint = VirtAddr::from(0x1000_usize);
+            let limit = VirtAddrRange::from_start_size(aspace.base(), aspace.size());
+            aspace
+                .find_free_area(hint, aligned_len, limit)
+                .ok_or(LinuxError::ENOMEM)?
+        } else {
+            if !flags_bits.contains(MmapFlags::MAP_FIXED) {
+                return Err(LinuxError::EINVAL);
+            }
+            let va = VirtAddr::from(addr);
+            if !va.is_aligned_4k() {
+                return Err(LinuxError::EINVAL);
+            }
+            va
+        };
+
+        aspace
+            .map_alloc(start_va, aligned_len, map_flags, true)
+            .map_err(|e| match e {
+                AxError::NoMemory => LinuxError::ENOMEM,
+                AxError::AlreadyExists => LinuxError::EINVAL,
+                _ => LinuxError::EINVAL,
+            })?;
+
+        let mut kbuf = alloc::vec![0u8; aligned_len];
+        let pos = api::sys_lseek(fd, off as api::ctypes::off_t, SEEK_SET);
+        if pos < 0 {
+            let _ = aspace.unmap(start_va, aligned_len);
+            return Err(LinuxError::EIO);
+        }
+        let n = api::sys_read(fd, kbuf.as_mut_ptr().cast::<c_void>(), length);
+        if n < 0 {
+            let _ = aspace.unmap(start_va, aligned_len);
+            return Err(LinuxError::EIO);
+        }
+        // Short read is valid at EOF; remaining bytes in `kbuf` stay zero (page zero-fill).
+        let n = n as usize;
+        if n > length {
+            let _ = aspace.unmap(start_va, aligned_len);
+            return Err(LinuxError::EIO);
+        }
+
+        aspace
+            .write(start_va, &kbuf[..aligned_len])
+            .map_err(|_| LinuxError::EFAULT)?;
+
+        Ok(start_va.as_usize())
+    })
 }
 
 fn sys_openat(dfd: c_int, fname: *const c_char, flags: c_int, mode: api::ctypes::mode_t) -> isize {
